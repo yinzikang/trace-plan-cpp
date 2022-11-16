@@ -5,7 +5,6 @@ using namespace std;
 
 int main() {
     Robot rbt;
-//    cout << rbt.kdl_model.getNrOfJoints() << endl;
     // 起点与终点
     KDL::Vector init_xpos = KDL::Vector(0.6, 0.1, 0.4);
     KDL::Rotation init_xmat = KDL::Rotation(1, 0, 0, 0, 1, 0, 0, 0, 1);
@@ -24,16 +23,16 @@ int main() {
     int dot_num = 300;
     double vel_raising_percentage = 0.05;
     double vel_max = 300.;
-    double **result_list = rbt.CreateResultList(dot_num);
+    double **result_list;
 
     // 选择路径规划模式
     int mode = 1;
-    if(mode == 1)
-        rbt.PathToPoint(result_list, init_frame, end_frame, time, dot_num, vel_raising_percentage, vel_max);
-    else if(mode == 2)
-        rbt.PathAlongLine(result_list, init_frame, end_frame, time, dot_num, vel_raising_percentage, vel_max);
+    if (mode == 1)
+        result_list = rbt.PathToPoint(init_frame, end_frame, time, dot_num, vel_raising_percentage, vel_max);
+    else if (mode == 2)
+        result_list = rbt.PathAlongLine(init_frame, end_frame, time, dot_num, vel_raising_percentage, vel_max);
     else
-        rbt.PathAlongLine(result_list, init_frame, end_frame, time, dot_num, vel_raising_percentage, vel_max);
+        result_list = rbt.PathAlongLine(init_frame, end_frame, time, dot_num, vel_raising_percentage, vel_max);
 
 
     return 0;

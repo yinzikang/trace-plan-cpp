@@ -2,8 +2,11 @@
 // Created by yzk on 11/8/22.
 //
 
+#include "sys/stat.h"
+#include "unistd.h"
 #include "../include/jk5_stick.h"
 #include "iostream"
+#include "fstream"
 
 Robot::Robot() {
     this->kdl_model.addSegment(KDL::Segment("base_link", KDL::Joint("base_joint", KDL::Joint::Fixed),
@@ -27,10 +30,11 @@ Robot::Robot() {
     this->joint_number = this->kdl_model.getNrOfJoints();
 }
 
+// * @param result_list 行为为各时刻，共dot_num行；列为到达该点的时间与各关节的角度，共joint_number+1列
 double **Robot::CreateResultList(int dot_num) {
     auto **result_list = new double *[dot_num];
     for (int dot_idx = 0; dot_idx < dot_num; dot_idx++) {
-        result_list[dot_idx] = new double[this->joint_number + 1]{0.0};//时间+各关节
+        result_list[dot_idx] = new double[1 + this->joint_number + 3 + 4]{0.0};//时间+各关节位置+迪卡尔位置+四元数
     }
 
     return result_list;
@@ -41,7 +45,6 @@ double **Robot::CreateResultList(int dot_num) {
  * 中间位置通过直线插值确定，中间姿态通过Slerp插值确定
  * 具体位姿由梯形的速度曲线确定，两条斜边为完全相同的三次样条曲线，保证起始与结束的速度加速度为0
  * 速度曲线积分得到的面积为1，当前时刻位姿由0到该时刻积分面积确定，每个方向上的角速度与线速度同步变化，即同时达到最大，同时开始减速
- * @param result_list 行为为各时刻，共dot_num行；列为到达该点的时间与各关节的角度，共joint_number+1列
  * @param init_frame 初始位姿
  * @param end_frame 结束位姿
  * @param time 运动总时间，秒
@@ -49,13 +52,14 @@ double **Robot::CreateResultList(int dot_num) {
  * @param speed_up_percentage 加速时间占运行时间比例
  * @param speed_limit 线速度的最大速度限制，如果加速时间占比不合理将导致最大速度超过速度限制，米每秒
  */
-void Robot::PathAlongLine(double **result_list, const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
-                          int dot_num, double velocity_raising_percentage, double velocity_limit) {
+double **Robot::PathAlongLine(const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
+                              int dot_num, double velocity_raising_percentage, double velocity_limit, bool save_fig,
+                              std::string file_name) {
     // 运动学求解器
-    KDL::ChainFkSolverPos_recursive fkine_solver = KDL::ChainFkSolverPos_recursive(kdl_model);
     KDL::ChainIkSolverPos_LMA ikine_solver = KDL::ChainIkSolverPos_LMA(kdl_model, 1E-5, 20000);
 
     // 利用运动的距离、时间，求出速度的参数以及相关参数
+    double **result_list = CreateResultList(dot_num);
     double delta_time = time / dot_num;
     double velocity_raising_time = velocity_raising_percentage * time; //加速所用时间
     double curve_para = 1. / (-3. / 2. * pow(velocity_raising_time, 4) + time * pow(velocity_raising_time, 3)); //样条曲线参数
@@ -96,8 +100,8 @@ void Robot::PathAlongLine(double **result_list, const KDL::Frame &init_frame, co
     double percent; //当前速度积分值（0-1）
     KDL::Frame current_frame_desire; //当前期望坐标系
     KDL::JntArray current_qpos = KDL::JntArray(joint_number); //current_frame_desire求解得到逆解current_qpos
-    KDL::Frame current_frame_real; // current_qpos前向运动学得到实际角度
     KDL::JntArray last_qpos = KDL::JntArray(joint_number); // 上一次的逆解角度，用于逆动力学方便求解
+    std::cout << std::endl;
 
     // 起点
     std::cout << "######## start ########" << std::endl;
@@ -107,14 +111,7 @@ void Robot::PathAlongLine(double **result_list, const KDL::Frame &init_frame, co
     std::cout << 100 * percent << " % accomplished" << std::endl;
     current_frame_desire = init_frame; //当前期望坐标系
     ikine_solver.CartToJnt(KDL::JntArray(joint_number), init_frame, current_qpos);
-    fkine_solver.JntToCart(current_qpos, current_frame_real);
-//    ShowQPos(current_qpos);
-    ShowXPos(current_frame_real);
-    std::cout << std::endl;
-    result_list[0][0] = current_time;
-    for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
-        result_list[0][joint_idx + 1] = current_qpos(joint_idx);
-    }
+    SaveToArray(current_time, current_qpos, result_list[dot_idx]);
     last_qpos = current_qpos; // 上一次的逆解角度
 
     //加速
@@ -136,15 +133,7 @@ void Robot::PathAlongLine(double **result_list, const KDL::Frame &init_frame, co
                                                            velocity_w_para1 * z1 + velocity_w_para2 * z2,
                                                            velocity_w_para1 * w1 + velocity_w_para2 * w2);
         ikine_solver.CartToJnt(last_qpos, current_frame_desire, current_qpos);
-        fkine_solver.JntToCart(current_qpos, current_frame_real);
-//        std::cout << velocity_w_para1 << ' ' << velocity_w_para2 << std::endl;
-        //ShowQPos(current_qpos);
-        ShowXPos(current_frame_real);
-        std::cout << std::endl;
-        result_list[dot_idx][0] = current_time;
-        for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
-            result_list[dot_idx][joint_idx + 1] = current_qpos(joint_idx);
-        }
+        SaveToArray(current_time, current_qpos, result_list[dot_idx]);
         last_qpos = current_qpos;
     }
     //匀速
@@ -166,15 +155,7 @@ void Robot::PathAlongLine(double **result_list, const KDL::Frame &init_frame, co
                                                            velocity_w_para1 * z1 + velocity_w_para2 * z2,
                                                            velocity_w_para1 * w1 + velocity_w_para2 * w2);
         ikine_solver.CartToJnt(last_qpos, current_frame_desire, current_qpos);
-        fkine_solver.JntToCart(current_qpos, current_frame_real);
-//        std::cout << velocity_w_para1 << ' ' << velocity_w_para2 << std::endl;
-        //ShowQPos(current_qpos);
-        ShowXPos(current_frame_real);
-        std::cout << std::endl;
-        result_list[dot_idx][0] = current_time;
-        for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
-            result_list[dot_idx][joint_idx + 1] = current_qpos(joint_idx);
-        }
+        SaveToArray(current_time, current_qpos, result_list[dot_idx]);
         last_qpos = current_qpos;
     }
     //减速
@@ -198,31 +179,31 @@ void Robot::PathAlongLine(double **result_list, const KDL::Frame &init_frame, co
                                                            velocity_w_para1 * z1 + velocity_w_para2 * z2,
                                                            velocity_w_para1 * w1 + velocity_w_para2 * w2);
         ikine_solver.CartToJnt(last_qpos, current_frame_desire, current_qpos);
-        fkine_solver.JntToCart(current_qpos, current_frame_real);
-//        std::cout << velocity_w_para1 << ' ' << velocity_w_para2 << std::endl;
-        //ShowQPos(current_qpos);
-        ShowXPos(current_frame_real);
-        std::cout << std::endl;
-        result_list[dot_idx][0] = current_time;
-        for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
-            result_list[dot_idx][joint_idx + 1] = current_qpos(joint_idx);
-        }
+        SaveToArray(current_time, current_qpos, result_list[dot_idx]);
         last_qpos = current_qpos;
     }
     std::cout << "end" << std::endl;
+
+    if (save_fig) {
+        SaveToFile(result_list, init_frame, end_frame, time, dot_num, velocity_raising_percentage, velocity_limit,
+                   "Line", file_name);
+    }
+
+    return result_list;
 }
 
 void Robot::PathAlongCircle() {
 
 }
 
-void Robot::PathToPoint(double **result_list, const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time, int dot_num,
-           double velocity_raising_percentage, double speed_limit) {
+double **Robot::PathToPoint(const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
+                            int dot_num, double velocity_raising_percentage, double velocity_limit, bool save_fig,
+                            std::string file_name) {
     // 运动学求解器
-    KDL::ChainFkSolverPos_recursive fkine_solver = KDL::ChainFkSolverPos_recursive(kdl_model);
     KDL::ChainIkSolverPos_LMA ikine_solver = KDL::ChainIkSolverPos_LMA(kdl_model, 1E-5, 20000);
 
     // 利用运动的距离、时间，求出速度的参数以及相关参数
+    double **result_list = CreateResultList(dot_num);
     double delta_time = time / dot_num;
     double velocity_raising_time = velocity_raising_percentage * time; //加速所用时间
     double curve_para = 1. / (-3. / 2. * pow(velocity_raising_time, 4) + time * pow(velocity_raising_time, 3)); //样条曲线参数
@@ -239,7 +220,6 @@ void Robot::PathToPoint(double **result_list, const KDL::Frame &init_frame, cons
     double current_time;
     double percent; //当前速度积分值（0-1）
     KDL::JntArray current_qpos = KDL::JntArray(joint_number);
-    KDL::Frame current_frame_real; // current_qpos前向运动学得到实际角度
     std::cout << std::endl;
 
     // 起点
@@ -248,15 +228,10 @@ void Robot::PathToPoint(double **result_list, const KDL::Frame &init_frame, cons
     current_time = dot_idx * delta_time;
     percent = 0.0;
     std::cout << 100 * percent << " % accomplished" << std::endl;
-    result_list[0][0] = current_time;
     for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
         current_qpos(joint_idx) = init_qpos(joint_idx);
-        result_list[0][joint_idx + 1] = current_qpos(joint_idx);
     }
-    fkine_solver.JntToCart(current_qpos, current_frame_real);
-    ShowXPos(current_frame_real);
-//    ShowQPos(current_qpos);
-    std::cout << std::endl;
+    SaveToArray(current_time, current_qpos, result_list[dot_idx]);
 
     //加速
     std::cout << "######## speed up ########" << std::endl;
@@ -264,15 +239,10 @@ void Robot::PathToPoint(double **result_list, const KDL::Frame &init_frame, cons
         current_time = dot_idx * delta_time;
         percent = curve_para / 4. * pow(current_time, 4);
         std::cout << 100 * percent << " % accomplished" << std::endl;
-        result_list[dot_idx][0] = current_time;
         for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
             current_qpos(joint_idx) = init_qpos(joint_idx) + percent * (end_qpos(joint_idx) - init_qpos(joint_idx));
-            result_list[dot_idx][joint_idx + 1] = current_qpos(joint_idx);
         }
-        fkine_solver.JntToCart(current_qpos, current_frame_real);
-        ShowXPos(current_frame_real);
-//        ShowQPos(current_qpos);
-        std::cout << std::endl;
+        SaveToArray(current_time, current_qpos, result_list[dot_idx]);
     }
     //匀速
     std::cout << "######## stable ########" << std::endl;
@@ -280,15 +250,10 @@ void Robot::PathToPoint(double **result_list, const KDL::Frame &init_frame, cons
         current_time = dot_idx * delta_time;
         percent = curve_para / 4 * pow(velocity_raising_time, 4) + curve_max * (current_time - velocity_raising_time);
         std::cout << 100 * percent << " % accomplished" << std::endl;
-        result_list[dot_idx][0] = current_time;
         for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
             current_qpos(joint_idx) = init_qpos(joint_idx) + percent * (end_qpos(joint_idx) - init_qpos(joint_idx));
-            result_list[dot_idx][joint_idx + 1] = current_qpos(joint_idx);
         }
-        fkine_solver.JntToCart(current_qpos, current_frame_real);
-        ShowXPos(current_frame_real);
-//        ShowQPos(current_qpos);
-        std::cout << std::endl;
+        SaveToArray(current_time, current_qpos, result_list[dot_idx]);
     }
     //减速
     std::cout << "######## speed down ########" << std::endl;
@@ -298,17 +263,19 @@ void Robot::PathToPoint(double **result_list, const KDL::Frame &init_frame, cons
                   curve_max * (time - 2 * velocity_raising_time) -
                   curve_para / 4 * pow(time - current_time, 4);
         std::cout << 100 * percent << " % accomplished" << std::endl;
-        result_list[dot_idx][0] = current_time;
         for (int joint_idx = 0; joint_idx < joint_number; joint_idx++) {
             current_qpos(joint_idx) = init_qpos(joint_idx) + percent * (end_qpos(joint_idx) - init_qpos(joint_idx));
-            result_list[dot_idx][joint_idx + 1] = current_qpos(joint_idx);
         }
-        fkine_solver.JntToCart(current_qpos, current_frame_real);
-        ShowXPos(current_frame_real);
-//        ShowQPos(current_qpos);
-        std::cout << std::endl;
+        SaveToArray(current_time, current_qpos, result_list[dot_idx]);
     }
     std::cout << "end" << std::endl;
+
+    if (save_fig) {
+        SaveToFile(result_list, init_frame, end_frame, time, dot_num, velocity_raising_percentage, velocity_limit,
+                   "Line", file_name);
+    }
+
+    return result_list;
 }
 
 void Robot::ShowXPos(KDL::Frame frame) {
@@ -325,4 +292,70 @@ void Robot::ShowQPos(KDL::JntArray qpos) {
     std::cout << std::endl;
 }
 
+void Robot::SaveToArray(double current_time, KDL::JntArray current_qpos, double *result_array) {
+    KDL::ChainFkSolverPos_recursive fkine_solver = KDL::ChainFkSolverPos_recursive(kdl_model);
+    KDL::Frame current_frame_real; // current_qpos前向运动学得到实际角度
+    fkine_solver.JntToCart(current_qpos, current_frame_real);
+    double x, y, z, w;
+    current_frame_real.M.GetQuaternion(x, y, z, w);
+//    std::cout << velocity_w_para1 << ' ' << velocity_w_para2 << std::endl;
+//    ShowQPos(current_qpos);
+//    ShowXPos(current_frame_real);
+//    std::cout << std::endl;
+    result_array[0] = current_time;
+    for (int joint_idx = 0; joint_idx < joint_number + 1; joint_idx++) {
+        result_array[joint_idx + 1] = current_qpos(joint_idx);
+    }
+    for (int pos_idx = 0; pos_idx < 3; pos_idx++) {
+        result_array[pos_idx + 1 + joint_number] = current_frame_real.p(pos_idx);
+    }
+    result_array[1 + joint_number + 3 + 0] = x;
+    result_array[1 + joint_number + 3 + 1] = y;
+    result_array[1 + joint_number + 3 + 2] = z;
+    result_array[1 + joint_number + 3 + 3] = w;
+}
 
+void Robot::SaveToFile(double **result_list, const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
+                       int dot_num, double velocity_raising_percentage, double speed_limit, std::string method,
+                       std::string file_name) {
+    std::string result_dir = "../result/";
+    std::string file_dir = "../result/" + file_name;
+    if (access(file_dir.c_str(), F_OK) == -1) {
+        mkdir(result_dir.c_str(), S_IRUSR | S_IWUSR | S_IXUSR | S_IRWXG | S_IRWXO);
+        mkdir(file_dir.c_str(), S_IRUSR | S_IWUSR | S_IXUSR | S_IRWXG | S_IRWXO);
+    }
+
+    // 保存关节角度信息
+    std::ofstream qpos_file;
+    qpos_file.open(file_dir + "/qpos.csv");
+    for (int i = 0; i < dot_num; i++) {
+        for (int j = 0; j < 1 + this->joint_number + 3 + 4; j++) {
+            qpos_file << result_list[i][j] << ',';
+        }
+        qpos_file << std::endl;
+    }
+    qpos_file.close();
+
+    // 保存配置信息
+    double x, y, z, w;
+    std::ofstream profile;
+    profile.open(file_dir + "/profile.txt");
+    profile << "method:\t" << method << std::endl;
+
+    profile << "init frame:\t" << std::endl;
+    profile << "pos:\t" << init_frame.p.x() << ' ' << init_frame.p.y() << ' ' << init_frame.p.z() << ' ' << std::endl;
+    init_frame.M.GetQuaternion(x, y, z, w);
+    profile << "quat:\t" << x << " " << y << " " << z << " " << w << std::endl;
+
+    profile << "end frame:" << std::endl;
+    profile << "pos:\t" << end_frame.p.x() << ' ' << end_frame.p.y() << ' ' << end_frame.p.z() << ' ' << std::endl;
+    end_frame.M.GetQuaternion(x, y, z, w);
+    profile << "quat:\t" << x << " " << y << " " << z << " " << w << std::endl;
+
+    profile << "time:\t" << time << std::endl;
+    profile << "dot num:\t" << dot_num << std::endl;
+    profile << "vel raise percentage:\t" << velocity_raising_percentage << std::endl;
+    profile << "speed limit:\t" << speed_limit << std::endl;
+
+    profile.close();
+}
