@@ -23,25 +23,29 @@ public:
     void ShowQPos(KDL::JntArray qpos);
 
     // 迪卡尔空间下直线路径
-    double **PathAlongLine(const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
-                           int dot_num,
-                           double velocity_raising_percentage, double velocity_limit, bool save_fig = true,
-                           std::string file_name = "test");
+    double **PathAlongLine(const KDL::Frame &init_frame, const KDL::Frame &end_frame,
+                           double time, int dot_num,
+                           double velocity_raising_percentage, double velocity_limit,
+                           bool save_file = true, std::string file_name = "test");
 
     // 迪卡尔空间下圆弧路径
-    void PathAlongCircle();
+    double **PathAlongCircle(const KDL::Frame &init_frame, const KDL::Frame &end_frame, const KDL::Frame &mid_frame,
+                             double time, int dot_num,
+                             double velocity_raising_percentage, double velocity_limit,
+                             bool save_file = true, std::string file_name = "test");
 
     // 关节空间下运动到指定位姿
-    double **PathToPoint(const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
-                         int dot_num,
-                         double velocity_raising_percentage, double velocity_limit, bool save_fig = true,
-                         std::string file_name = "test");
+    double **PathToPoint(const KDL::Frame &init_frame, const KDL::Frame &end_frame,
+                         double time, int dot_num,
+                         double velocity_raising_percentage, double velocity_limit,
+                         bool save_file = true, std::string file_name = "test");
 
 private:
-    void SaveToFile(double **result_list, const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
-                    int dot_num,
-                    double velocity_raising_percentage, double velocity_limit, std::string method,
-                    std::string file_name);
+    void SaveToFile(double **result_list,
+                    const KDL::Frame &init_frame, const KDL::Frame &end_frame,
+                    double time, int dot_num,
+                    double velocity_raising_percentage, double velocity_limit,
+                    std::string method, std::string file_name);
 
     void SaveToArray(double current_time, KDL::JntArray qpos, double *result_array);
 };

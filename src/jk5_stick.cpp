@@ -30,7 +30,7 @@ Robot::Robot() {
     this->joint_number = this->kdl_model.getNrOfJoints();
 }
 
-// * @param result_list 行为为各时刻，共dot_num行；列为到达该点的时间与各关节的角度，共joint_number+1列
+// 行为各时刻，共dot_num行；列为到达该点的时间与各关节的角度，共1+joint_number+3+4列
 double **Robot::CreateResultList(int dot_num) {
     auto **result_list = new double *[dot_num];
     for (int dot_idx = 0; dot_idx < dot_num; dot_idx++) {
@@ -53,7 +53,7 @@ double **Robot::CreateResultList(int dot_num) {
  * @param speed_limit 线速度的最大速度限制，如果加速时间占比不合理将导致最大速度超过速度限制，米每秒
  */
 double **Robot::PathAlongLine(const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
-                              int dot_num, double velocity_raising_percentage, double velocity_limit, bool save_fig,
+                              int dot_num, double velocity_raising_percentage, double velocity_limit, bool save_file,
                               std::string file_name) {
     // 运动学求解器
     KDL::ChainIkSolverPos_LMA ikine_solver = KDL::ChainIkSolverPos_LMA(kdl_model, 1E-5, 20000);
@@ -184,7 +184,7 @@ double **Robot::PathAlongLine(const KDL::Frame &init_frame, const KDL::Frame &en
     }
     std::cout << "end" << std::endl;
 
-    if (save_fig) {
+    if (save_file) {
         SaveToFile(result_list, init_frame, end_frame, time, dot_num, velocity_raising_percentage, velocity_limit,
                    "Line", file_name);
     }
@@ -192,12 +192,16 @@ double **Robot::PathAlongLine(const KDL::Frame &init_frame, const KDL::Frame &en
     return result_list;
 }
 
-void Robot::PathAlongCircle() {
+double **Robot::PathAlongCircle(const KDL::Frame &init_frame, const KDL::Frame &end_frame, const KDL::Frame &mid_frame,
+                             double time, int dot_num,
+                             double velocity_raising_percentage, double velocity_limit,
+                             bool save_file, std::string file_name) {
+
 
 }
 
 double **Robot::PathToPoint(const KDL::Frame &init_frame, const KDL::Frame &end_frame, double time,
-                            int dot_num, double velocity_raising_percentage, double velocity_limit, bool save_fig,
+                            int dot_num, double velocity_raising_percentage, double velocity_limit, bool save_file,
                             std::string file_name) {
     // 运动学求解器
     KDL::ChainIkSolverPos_LMA ikine_solver = KDL::ChainIkSolverPos_LMA(kdl_model, 1E-5, 20000);
@@ -270,7 +274,7 @@ double **Robot::PathToPoint(const KDL::Frame &init_frame, const KDL::Frame &end_
     }
     std::cout << "end" << std::endl;
 
-    if (save_fig) {
+    if (save_file) {
         SaveToFile(result_list, init_frame, end_frame, time, dot_num, velocity_raising_percentage, velocity_limit,
                    "Line", file_name);
     }
