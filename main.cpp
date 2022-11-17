@@ -30,18 +30,18 @@ int main() {
 
     // 选择路径规划模式
     int mode = 2;
-    if (mode == 3)
+    if (mode == 1)
         result_list = rbt.PathToPoint(init_frame, end_frame,
                                       time, dot_num,
-                                      vel_raising_percentage, vel_max);
+                                      vel_raising_percentage, vel_max, true,"point");
     else if (mode == 2)
         result_list = rbt.PathAlongCircle(init_frame, end_frame, mid_frame,
                                           time, dot_num,
-                                          vel_raising_percentage, vel_max);
+                                          vel_raising_percentage, vel_max, true,"circle");
     else
         result_list = rbt.PathAlongLine(init_frame, end_frame,
                                         time, dot_num,
-                                        vel_raising_percentage, vel_max);
+                                        vel_raising_percentage, vel_max, true,"line");
 
 
     return 0;

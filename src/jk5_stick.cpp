@@ -482,7 +482,7 @@ double **Robot::PathToPoint(const KDL::Frame &init_frame, const KDL::Frame &end_
 
     if (save_file) {
         SaveToFile(result_list, init_frame, end_frame, time, dot_num, velocity_raising_percentage, velocity_limit,
-                   "Line", file_name);
+                   "Point", file_name);
     }
 
     return result_list;
